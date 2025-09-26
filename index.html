@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+  <meta charset="utf-8"/>
+  <title>WEBGIS Kabupaten Kudus</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Leaflet Sidebar -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-sidebar-v2/css/leaflet-sidebar.min.css"/>
+  <script src="https://unpkg.com/leaflet-sidebar-v2/js/leaflet-sidebar.min.js"></script>
+
+  <!-- Geoman (drawing & measuring) -->
+<link rel="stylesheet"
+      href="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.14.0/dist/leaflet-geoman.css" />
+<script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.14.0/dist/leaflet-geoman.min.js"></script>
+
+<!-- Turf.js (hitung panjang & luas geodesik) -->
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+
+<style>
+  /* Label hasil pengukuran */
+  .measure-label {
+  display: inline-block;   /* biar kotak ikut teks */
+  width: auto !important;  /* override jika ada width 100% */
+  max-width: none !important;
+  background: white;
+  border: 1px solid black;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 12px;
+  font-weight: bold;
+  white-space: nowrap;     /* cegah pecah baris */
+  box-shadow: 0 1px 2px rgba(0,0,0,.25);
+}
+  /* agar berada sedikit di atas garis & di tengah poligon */
+  .measure-label--line{ transform: translate(-50%, -100%); }
+  .measure-label--area{ transform: translate(-50%, -50%); }
+</style>
+
+
+  <!-- jQuery + DataTables -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css"/>
+  <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.dataTables.min.css"/>
+  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/pdfmake.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/vfs_fonts.js"></script>
+
+  <!-- FontAwesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"/>
+
+  <style>
+    html, body, #map { height:100%; margin:0; padding:0; }
+    .leaflet-sidebar .leaflet-sidebar-content { font-family:system-ui, Arial, sans-serif; }
+    .attribute-table-wrapper { width:100%; overflow-x:auto; }
+    #legendContent { font-size:13px; line-height:1.4; }
+  </style>
+
+  <style>
+  .popup-card {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    font-size: 13px;
+    padding: 6px 8px;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+  }
+  .popup-row { display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid #eee; }
+  .popup-label { font-weight:600; color:#333; }
+  .popup-value { color:#555; margin-left:8px; text-align:right; }
+
+  .reorder-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-weight: bold;
+  margin-left: 4px;
+  color: #444;
+}
+  .reorder-btn:hover {
+  color: #000;
+}
+</style>
+
+
+<!-- Leaflet Control Geocoder (OSM / Nominatim) -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+<script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+
+
+
+</head>
+<body>
+  <div id="uploadBox">
+  <label>Upload GeoJSON: <input type="file" id="geojsonUpload" accept=".geojson,.json" /></label>
+  <label>Upload Shapefile (.zip): <input type="file" id="shpUpload" accept=".zip" /></label>
+</div>
+
+<!-- shpjs untuk parsing shapefile -->
+<script src="https://unpkg.com/shpjs@latest/dist/shp.min.js">
+   // Fungsi buat popup tabel dari properties
+  function bindPopupForFeature(feature, layer) {
+    if (feature.properties) {
+      let html = "<table border='1' style='border-collapse:collapse;width:100%'>";
+      for (let key in feature.properties) {
+        html += "<tr><th style='padding:2px 5px;background:#f0f0f0;text-align:left'>" 
+             + key + "</th><td style='padding:2px 5px'>" 
+             + feature.properties[key] + "</td></tr>";
+      }
+      html += "</table>";
+      layer.bindPopup(html);
+    }
+  }
+</script>
+<style>#uploadBox {
+  position: absolute;
+  bottom: 20px;   /* tetap di bawah */
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  background: rgba(255, 255, 255, 0.95);
+  padding: 10px 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;   /* rata tengah */
+  gap: 20px;  /* jarak antar input */
+}
+#uploadBox label {
+  white-space: nowrap;
+  font-weight: 600;
+}</style>
+
+
+  <div id="map"></div>
+
+  <!-- Sidebar -->
+  <div id="sidebar" class="leaflet-sidebar collapsed">
+    <div class="leaflet-sidebar-tabs">
+      <ul role="tablist">
+        <li><a href="#home" role="tab"><i class="fa fa-layer-group"></i></a></li>
+        <li><a href="#legend" role="tab"><i class="fa fa-list"></i></a></li>
+        <li><a href="#table" role="tab"><i class="fa fa-table"></i></a></li>
+      </ul>
+    </div>
+    <div class="leaflet-sidebar-content">
+      <div class="leaflet-sidebar-pane" id="home">
+        <h2 class="leaflet-sidebar-header">Layers<i class="fa fa-times"></i></h2>
+        <div id="layerControl"></div>
+      </div>
+      <div class="leaflet-sidebar-pane" id="legend">
+        <h2 class="leaflet-sidebar-header">Legenda<i class="fa fa-times"></i></h2>
+        <div id="legendContent"><i>Tidak ada legenda</i></div>
+      </div>
+      <div class="leaflet-sidebar-pane" id="table">
+        <h2 class="leaflet-sidebar-header">Tabel Atribut<i class="fa fa-times"></i></h2>
+        <div class="attribute-table-wrapper">
+          <table id="attributeTable" class="display nowrap" style="width:100%">
+            <thead><tr id="table-head-row"></tr></thead>
+            <tbody id="table-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==== DATA GEOJSON ==== -->
+  <script src="data/BatasAdministrasi_2.js"></script>
+  <script src="data/JumlahPerusahaanKecilMikro_4.js"></script>
+  <script src="data/JumlahTenagaKerjaPerusahaanKecilMikro_3.js"></script>
+  <script src="data/JumlahPerusahaanSedang_6.js"></script>
+  <script src="data/JumlahTenagaKerjaPerusahaanSedang_5.js"></script>
+  <script src="data/JumlahPerusahaanBesar_8.js"></script>
+  <script src="data/JumlahTenagaKerjaPerusahaanBesar_7.js"></script>
+  <script src="data/JumlahUMKMTahun2023_9.js"></script>
+  <script src="data/TutupanLahan_10.js"></script>
+  <script src="data/WadukdanTambak_11.js"></script>
+  <script src="data/PotensiKawasanInvestasi_12.js"></script>
+  <script src="data/JaringanTransportasi_13.js"></script>
+  <script src="data/JaringanPerairan_14.js"></script>
+  <script src="data/SitusIndustriTerdaftardiKecamatanKaliwungu_15.js"></script>
+  <script src="data/SitusIndustriTerdaftardiKecamatanJekulo_16.js"></script>
+
+  <!-- ==== CONFIG & SCRIPT ==== -->
+  <script src="data/layerConfig.js"></script>
+  <script src="js/qgis2web.js"></script>
+
+</body>
+</html>
